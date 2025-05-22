@@ -1,0 +1,248 @@
+/*
+Improved UNUSUAL method for reaction-diffusion problems
+considering variable coeficients. 
+*/ 
+
+load "qf11to25" // Load the QF11to25 module (for quadrature formulas)
+load "iovtk"
+
+//------------------------Files for convergence tests-------------------
+ //ofstream errorData("error_data_GAP1.txt");
+ //errorData << "# h  nDoF   L2_error   H1_semi_error   H1_error " << endl;
+
+//-----------------Analytical solution (simple one)----------------------------------
+real forder = 25;
+real epsilon = 1e-2;        //Diffussion
+real sigmaVal = 1.0;           //Reaction
+
+/* Variable coefficients for the test
+func real kappa() {
+         return x^2 * (1 - x)^2;
+   }
+
+func real sigma() {
+        return 2*(1 - 2*x)^2;
+    }
+*/
+
+//Constant coefficients for the test
+func real kappa() {
+        return epsilon;
+    }
+func real sigma() {
+        return sigmaVal;
+    }
+
+//Smooth analytical solution for tests
+ func uEx = x*(1-x);
+ func dxu = 1-2*x;
+ func dyu = 0;
+//func f = 2 * (1 - 2*x)^2; //Variable coefficients
+func f = sigma()*x*(1-x) + 2* kappa(); //constant coefficients
+    
+ 
+ //----------------------------Boundary layer solution---------------------------------
+ //Taking \sigma=1, kappa(x,y)=1 + 0.5*sin(2\pi y)
+
+/* 
+func real kappa() {
+       return 1 + 0.5*sin(2*pi*y);
+    }
+
+func real sigma() {
+        return 1.0;
+    }
+
+func real sech(real x) {
+        return 1/cosh(x);
+    }
+ 
+ func uEx = x * tanh((1-x)/epsilon);
+ func dxu = tanh((1 - x)/epsilon) - ( x*(sech( (1-x)/epsilon ) )^2)/epsilon;
+ func dyu = 0.0;
+ func f = x * tanh((1-x)/epsilon)  - (kappa() / (-epsilon^2)) * ( 2 * sech((1-x)/epsilon) * ( tanh((1-x)/epsilon) + epsilon ) );
+*/
+
+//--------------------------------------------SPE10-Problem-----------------------------------------------------------
+/*
+func f = 0.0;
+//Reading coeficients from a file
+int nrows;
+// string fileName = "spe_perm1.txt";
+string fileName = "layerSPE10/spe_perm36.txt";
+ifstream  file(fileName);
+
+// Read the matrix dimensions from the file
+file >> nrows;
+
+real[int] tabkappa(nrows);
+for(int i=0; i<nrows; i++){
+    file >> tabkappa(i);
+}
+
+//cout << "\ntabkappa:" << tabkappa << "\n";
+
+ func real kappa() {
+     real Lx = 1200., Ly=2200.;
+
+    real Nx = floor(x/Lx*60);
+     if(Nx>=60){
+         Nx=59;
+     }
+
+     real Ny = floor(y/Ly*220);
+     if(Ny>=220){
+         Ny=219;
+     }
+
+     int position = Nx + 60*Ny;
+     // cout << tabkappa(position) << "\n";
+     return tabkappa(position);
+ }
+
+
+ */
+
+//----------------------------------------Define the mesh and spaces--------------------------------------------
+
+//[0,1]^2
+  real x0 = 0.;
+  real x1 = 1;
+  real y0 = 0;
+  real y1 = 1;
+
+//SPE-10 Domain
+//  real x0 = 0.0;
+//  real x1 = 1200;
+//  real y0 = 0.0;
+//  real y1 = 2200;
+
+//Loop for convergence tests
+//for(int coarseMesh = 0; coarseMesh <= 7; coarseMesh++){
+
+//Structured mesh
+int coarseMesh = 3;
+//mesh calP = square(2^coarseMesh, 2^coarseMesh, [x0 + (x1 - x0)*x, y0 + (y1 - y0)*y]); //Structured mesh
+
+//Borders of the mesh(just for the unstructured mesh)
+ border bottom(t=0,1){ x = x0 + (x1 - x0)*t; y = y0; label=1; }
+ border right(t=0,1){ x = x1; y = y0 + (y1 - y0)*t; label=2; }
+ border top(t=0,1){ x = x1 - (x1 - x0)*t; y = y1; label=3; }
+ border left(t=0,1){ x = x0; y = y1 - (y1 - y0)*t; label=4; } 
+
+//construction of unstructured mesh
+mesh calP = buildmesh(bottom(2^coarseMesh) + right(2^coarseMesh) + top(2^coarseMesh) + left(2^coarseMesh));
+//plot(calP, wait=1); //Plot the mesh
+
+fespace Vh(calP, P1); //FEM space for test functions and solution
+fespace Rh(calP, P0); //Space for constant by triangle
+
+//-----------------------------------------Estimation of maximum of kappa and sigma in each K---------------------------------------------
+Vh kappaInterpol = kappa(); //Interpolation of kappa
+Vh sigmaInterpol = sigma(); //Interpolation of sigma
+//cout << "kappaInterpol = " << kappaInterpol[] << endl; //Print the interpolation of kappa
+//plot(kappaInterpol,  wait=1); //Plot the interpolation of kappa 
+Rh sigmaMax; //Max of sigma in each triangle
+Rh kappaMax; //Max of kappa in each triangle
+
+//Finding the maximum in each triangle (this procedure works for P1 elements)
+for (int i = 0; i < calP.nt; i++) {
+    //Obtain the vertices of the triangle i
+    int v0 = calP[i][0];
+    int v1 = calP[i][1];
+    int v2 = calP[i][2];
+    
+    //Obtain the absolute interpolation values at the vertices
+    real valkappa0 = abs(kappaInterpol[][v0]);
+    real valkappa1 = abs(kappaInterpol[][v1]);
+    real valkappa2 = abs(kappaInterpol[][v2]);
+
+    real valsigma0 = abs(sigmaInterpol[][v0]);
+    real valsigma1 = abs(sigmaInterpol[][v1]);
+    real valsigma2 = abs(sigmaInterpol[][v2]);
+    
+    //Obtain the maximum value in the triangle (among the three vertices for P1)
+    real maxKappaTri = max(valkappa0, max(valkappa1, valkappa2));
+    real maxSigmaTri = max(valsigma0, max(valsigma1, valsigma2));
+    
+    //Assign the maximum value to the corresponding triangle in the Rh space
+    kappaMax[][i] = maxKappaTri; 
+    sigmaMax[][i] = maxSigmaTri;
+}
+
+//cout << "kappaMax = " << kappaMax[] << endl; //Print the max of kappa
+//cout << "sigmaMax = " << sigmaMax[] << endl; //Print the max of sigma
+
+//-----------------------------------------Stabilization parameters----------------------------------------------
+
+Rh tau; //Stabilization parameter
+real mk = 1.0/3.0; // mk = max(1/3 , Ck), but we take 1/3
+Rh Pe1 = (2*kappaMax) /(mk * hTriangle^2 * sigmaMax) ; //Peclet type number
+//cout << "Pe1 = " << Pe1[] << endl; //Print the Pe1 number
+
+//Rh hK = hTriangle;
+//cout << "hK = " << hK[] << endl; //Print the triangle size
+
+Rh MaxValuePe = max(Pe1, 1); //Max of Pe1 in each triangle
+//cout << "MaxValuePe = " << MaxValuePe[] << endl; //Print the max of Pe1
+
+//some parameters to test:
+
+//tau = hTriangle^2 / (sigmaMax * hTriangle^2 + kappaMax); //Franca, Farhat(1995) parameter
+
+tau = (mk *hTriangle^2) / (mk* sigmaMax * MaxValuePe * hTriangle^2 + 2*kappaMax); //Franca, Valentin(2000) parameter
+
+//tau = 0.0; //Galerkin case
+cout << "tau = " << tau[] << endl; //Print the tau
+
+
+//-----------------------------------------Variational formulation------------------------------------------------
+Vh uh, vh; //solution and test function
+
+varf a(uh, vh) = int2d(calP , qforder = forder , optimize = 0)(
+    sigma()*uh*vh 
+    + kappa()*( dx(uh)*dx(vh) + dy(uh)*dy(vh) )  
+    - tau * ( sigma()*uh - ( dx(kappaInterpol)*dx(uh) + dy(kappaInterpol)*dy(uh) + kappaInterpol*(dxx(uh) + dyy(uh)) ) ) * ( sigma()*vh - ( dx(kappaInterpol)*dx(vh) + dy(kappaInterpol)*dy(vh) + kappaInterpol*(dxx(vh) + dyy(vh)) ) )
+)
++ on(2, uh = 0.0) // left side
++ on(4, uh = 0.0); // Right side
+
+matrix A = a(Vh, Vh); //Matrix A
+//cout << "A = " << A << endl; //Print the matrix A
+
+varf LinF(uh , vh) = int2d(calP , qforder = forder , optimize = 0)(f*vh
+          - f*tau*( sigma()*vh -( dx(kappaInterpol)*dx(vh) + dy(kappaInterpol)*dy(vh) + kappaInterpol*(dxx(vh) + dyy(vh)) )   ) )
+          + on(2, uh = 0.0) // left side
+          + on(4, uh = 0.0); // Right side
+
+
+//Vh F;
+real[int] Fvec = LinF(0, Vh); //Right-hand side vector
+//cout << "Fvec = " << Fvec << endl; //Print the right-hand side vector
+
+//--------------------------------Solving the system-----------------------------------
+
+set(A, solver=sparsesolver);
+uh[] = A^-1 * Fvec; //Solve the system
+
+//plot(uh, wait=1); //Plot the solution
+
+//----------------------------Error estimation------------------------------------------------
+real L2error = int2d(calP , qforder =forder ,  optimize = 0)( (uh - uEx)^2 ); //L2 error
+real H1semierror = int2d(calP , qforder = forder ,  optimize = 0)( (dx(uh) - dxu)^2 + (dy(uh) - dyu)^2 ); //H1 semi error
+real H1error = L2error + H1semierror; //H1 error
+
+//errorData << calP.hmax << "  " << Vh.ndof << "  " << sqrt(L2error) << "  " << sqrt(H1semierror) << "  " << sqrt(H1error) << endl; //Write the errors to the file
+
+cout << "mesh size = " << calP.hmax << endl; //Print the mesh size
+cout << "nDoF = " << Vh.ndof << endl; //Print the number of degrees of freedom
+cout << "L2 error = " << sqrt(L2error) << endl; //Print the L2 error
+cout << "H1 semi error = " << sqrt(H1semierror) << endl; //Print the H1 semi error
+cout << "H1 error = " << sqrt(H1error) << endl; //Print the H1 error
+
+//----------------------------Export solution to VTK (Paraview)------------------------
+     int[int] Order = [1]; 
+     string DataName = "uH";
+     //savevtk("solution_GAP1-cM128.vtu", calP, uh, dataname=DataName, order=Order);
+
+//}

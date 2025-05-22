@@ -1,0 +1,65 @@
+load "iovtk"
+
+//Reading coeficients from a file
+int nrows;
+string fileName = "layerSPE10/spe_perm36.txt";
+//string fileName = "spe_perm1.txt";
+ifstream  file(fileName);
+
+// Read the matrix dimensions from the file
+file >> nrows;
+
+real[int] tabkappa(nrows);
+for(int i=0; i<nrows; i++){
+    file >> tabkappa(i);
+}
+
+func real kappa(){
+    real Lx = 1200., Ly=2200.;
+
+    real Nx = floor(x/Lx*60);
+    if(Nx>=60){
+        Nx=59;
+    }
+
+    real Ny = floor(y/Ly*220);
+    if(Ny>=220){
+        Ny=219;
+    }
+
+    int position = Nx + 60*Ny;
+    //cout << tabkappa(position) << "\n";
+    return tabkappa(position);
+}
+
+func f = 0;
+
+real x0 = 0.;
+real x1 = 1200;
+real y0 = 0;
+real y1 = 2200;
+
+
+
+int globalH = 8;
+mesh Th = square(2^globalH, 2^globalH, [x0+(x1-x0)*x, y0+(y1-y0)*y]);
+
+// Reaction coefficient
+real sigma = 1e-2;
+
+load "Element_P3"
+fespace Vh(Th,P3);
+
+Vh uh,vh;
+
+solve poisson(uh,vh) =
+int2d(Th)( kappa()*(dx(uh)*dx(vh)+dy(uh)*dy(vh)) + sigma * uh * vh )
+- int2d(Th)( 0*vh ) +on(1, uh=1) +on(3, uh=0); 
+
+// Plot
+//plot(uh, value=true, fill=true, cmm="Solution u(x,y)");
+
+int[int] Order = [1];
+string DataName = "uH";
+savevtk("SPE10_reference.vtu", Th, uh, dataname=DataName, order=Order);
+    
