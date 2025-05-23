@@ -15,7 +15,8 @@ real forder = 25;
 real epsilon = 1e-2;        //Diffussion
 real sigmaVal = 1.0;           //Reaction
 
-/* Variable coefficients for the test
+/*
+//Variable coefficients for the test
 func real kappa() {
          return x^2 * (1 - x)^2;
    }
@@ -23,9 +24,10 @@ func real kappa() {
 func real sigma() {
         return 2*(1 - 2*x)^2;
     }
-*/
+
 
 //Constant coefficients for the test
+
 func real kappa() {
         return epsilon;
     }
@@ -33,18 +35,19 @@ func real sigma() {
         return sigmaVal;
     }
 
+
 //Smooth analytical solution for tests
  func uEx = x*(1-x);
  func dxu = 1-2*x;
  func dyu = 0;
-//func f = 2 * (1 - 2*x)^2; //Variable coefficients
-func f = sigma()*x*(1-x) + 2* kappa(); //constant coefficients
+func f = 2 * (1 - 2*x)^2; //Variable coefficients
+//func f = sigma()*x*(1-x) + 2* kappa(); //constant coefficients
     
- 
+ */
  //----------------------------Boundary layer solution---------------------------------
  //Taking \sigma=1, kappa(x,y)=1 + 0.5*sin(2\pi y)
 
-/* 
+ 
 func real kappa() {
        return 1 + 0.5*sin(2*pi*y);
     }
@@ -61,7 +64,7 @@ func real sech(real x) {
  func dxu = tanh((1 - x)/epsilon) - ( x*(sech( (1-x)/epsilon ) )^2)/epsilon;
  func dyu = 0.0;
  func f = x * tanh((1-x)/epsilon)  - (kappa() / (-epsilon^2)) * ( 2 * sech((1-x)/epsilon) * ( tanh((1-x)/epsilon) + epsilon ) );
-*/
+
 
 //--------------------------------------------SPE10-Problem-----------------------------------------------------------
 /*
@@ -121,7 +124,7 @@ for(int i=0; i<nrows; i++){
 //for(int coarseMesh = 0; coarseMesh <= 7; coarseMesh++){
 
 //Structured mesh
-int coarseMesh = 3;
+int coarseMesh = 6;
 //mesh calP = square(2^coarseMesh, 2^coarseMesh, [x0 + (x1 - x0)*x, y0 + (y1 - y0)*y]); //Structured mesh
 
 //Borders of the mesh(just for the unstructured mesh)
@@ -134,7 +137,7 @@ int coarseMesh = 3;
 mesh calP = buildmesh(bottom(2^coarseMesh) + right(2^coarseMesh) + top(2^coarseMesh) + left(2^coarseMesh));
 //plot(calP, wait=1); //Plot the mesh
 
-fespace Vh(calP, P1); //FEM space for test functions and solution
+fespace Vh(calP, P2); //FEM space for test functions and solution
 fespace Rh(calP, P0); //Space for constant by triangle
 
 //-----------------------------------------Estimation of maximum of kappa and sigma in each K---------------------------------------------
@@ -146,6 +149,7 @@ Rh sigmaMax; //Max of sigma in each triangle
 Rh kappaMax; //Max of kappa in each triangle
 
 //Finding the maximum in each triangle (this procedure works for P1 elements)
+/*
 for (int i = 0; i < calP.nt; i++) {
     //Obtain the vertices of the triangle i
     int v0 = calP[i][0];
@@ -169,11 +173,53 @@ for (int i = 0; i < calP.nt; i++) {
     kappaMax[][i] = maxKappaTri; 
     sigmaMax[][i] = maxSigmaTri;
 }
+*/
+
+//Finding the maximum in each triangle (this procedure works for P2 elements)
+for (int i = 0; i < calP.nt; i++) {
+    //Obtain the vertices of the triangle i
+    int v0 = calP[i][0];
+    int v1 = calP[i][1];
+    int v2 = calP[i][2];
+
+    //Obtain the coordinates of the vertices and mid points
+    real x0 = calP(v0).x , y0 = calP(v0).y;
+    real x1 = calP(v1).x , y1 = calP(v1).y;
+    real x2 = calP(v2).x , y2 = calP(v2).y;
+    real xm01 = (x0 + x1)/2.0, ym01 = (y0 + y1)/2.0;
+    real xm12 = (x1 + x2)/2.0, ym12 = (y1 + y2)/2.0;
+    real xm20 = (x2 + x0)/2.0, ym20 = (y2 + y0)/2.0;
+    
+    //Obtain the absolute interpolation values at the vertices
+    real valkappa0 = abs(kappaInterpol(x0, y0));
+    real valkappa1 = abs(kappaInterpol(x1, y1));
+    real valkappa2 = abs(kappaInterpol(x2, y2));
+    real valkappa01 = abs(kappaInterpol(xm01, ym01));
+    real valkappa12 = abs(kappaInterpol(xm12, ym12));
+    real valkappa20 = abs(kappaInterpol(xm20, ym20));
+
+    real valsigma0 = abs(sigmaInterpol(x0, y0));
+    real valsigma1 = abs(sigmaInterpol(x1, y1));
+    real valsigma2 = abs(sigmaInterpol(x2, y2));
+    real valsigma01 = abs(sigmaInterpol(xm01, ym01));
+    real valsigma12 = abs(sigmaInterpol(xm12, ym12));
+    real valsigma20 = abs(sigmaInterpol(xm20, ym20));
+
+    
+    //Obtain the maximum value in the triangle (among the six points for P2)
+    real maxKappaTri = max(valkappa0, max(valkappa1, max(valkappa2, max(valkappa01, max(valkappa12, valkappa20)))));
+    real maxSigmaTri = max(valsigma0, max(valsigma1, max(valsigma2, max(valsigma01, max(valsigma12, valsigma20)))));
+    
+    //Assign the maximum value to the corresponding triangle in the Rh space
+    kappaMax[][i] = maxKappaTri; 
+    sigmaMax[][i] = maxSigmaTri;
+}
 
 //cout << "kappaMax = " << kappaMax[] << endl; //Print the max of kappa
 //cout << "sigmaMax = " << sigmaMax[] << endl; //Print the max of sigma
 
 //-----------------------------------------Stabilization parameters----------------------------------------------
+
 
 Rh tau; //Stabilization parameter
 real mk = 1.0/3.0; // mk = max(1/3 , Ck), but we take 1/3
@@ -246,3 +292,4 @@ cout << "H1 error = " << sqrt(H1error) << endl; //Print the H1 error
      //savevtk("solution_GAP1-cM128.vtu", calP, uh, dataname=DataName, order=Order);
 
 //}
+
